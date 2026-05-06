@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-cfg"
+version = "0.1.0"
+description = "Versioned snapshot-based sync for Claude Code config files across machines."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Amit Razam", email = "razamit23@gmail.com" }]
+keywords = ["claude", "config", "sync", "backup", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "typer[all]>=0.12",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+s3   = ["boto3>=1.34"]
+gist = ["requests>=2.31"]
+sftp = ["paramiko>=3.4"]
+all  = ["boto3>=1.34", "requests>=2.31", "paramiko>=3.4"]
+dev  = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "boto3>=1.34",
+    "requests>=2.31",
+    "paramiko>=3.4",
+]
+
+[project.scripts]
+claude-cfg = "claude_cfg.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/razamit/claude-cfg"
+Repository = "https://github.com/razamit/claude-cfg"
+Issues = "https://github.com/razamit/claude-cfg/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["claude_cfg*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
