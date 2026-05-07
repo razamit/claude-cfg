@@ -1,2 +1,0 @@
-[console_scripts]
-claude-cfg = claude_cfg.cli:app
