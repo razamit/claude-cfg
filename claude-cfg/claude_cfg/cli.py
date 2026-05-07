@@ -52,8 +52,11 @@ def init() -> None:
             backend_cfg["region"] = typer.prompt("AWS region", default="us-east-1")
 
     elif storage == "local":
-        default_path = "~/Dropbox/claude-cfg"
-        backend_cfg["path"] = typer.prompt("Local/Dropbox path", default=default_path)
+        console.print(
+            "[dim]Tip: use a folder inside a sync service (Dropbox, OneDrive, Google Drive, iCloud)\n"
+            "so snapshots are available on all your machines automatically.[/dim]"
+        )
+        backend_cfg["path"] = typer.prompt("Folder path")
 
     elif storage == "gist":
         backend_cfg["token"] = typer.prompt("GitHub personal access token", hide_input=True)
@@ -102,7 +105,23 @@ def init() -> None:
             pass
 
     cfg_mod.save(new_cfg)
+
+    snapshot_dest = _describe_snapshot_dest(storage, backend_cfg)
     console.print(f"\n[green]Config saved to {config_file()}[/green]")
+    console.print(f"[green]Snapshots will be stored in: {snapshot_dest}[/green]")
+
+    console.print("\nCreating initial snapshot...")
+    try:
+        result = core.push("initial", new_cfg, provider)
+        ts = result["timestamp"].replace("T", " ").replace("Z", "")
+        size_kb = result["size_bytes"] / 1024
+        console.print(
+            f"[green]Snapshot #1 pushed ({ts}) — "
+            f"{result['file_count']} files, {size_kb:.1f} KB[/green]"
+        )
+    except Exception as e:
+        console.print(f"[yellow]Warning: initial snapshot failed: {e}[/yellow]")
+        console.print("Run [bold]claude-cfg push[/bold] manually when ready.")
 
 
 @app.command()
@@ -186,6 +205,25 @@ def config_set(
     """Set a config value."""
     cfg_mod.set_value(key, value)
     console.print(f"[green]Set {key} = {value}[/green]")
+
+
+def _describe_snapshot_dest(storage: str, backend_cfg: dict) -> str:
+    if storage == "local":
+        return backend_cfg.get("path", "")
+    if storage in ("s3", "r2"):
+        bucket = backend_cfg.get("bucket", "")
+        if storage == "r2":
+            account = backend_cfg.get("account_id", "")
+            return f"r2://{account}/{bucket}"
+        region = backend_cfg.get("region", "us-east-1")
+        return f"s3://{bucket} ({region})"
+    if storage == "gist":
+        return "GitHub Gist (private)"
+    if storage == "sftp":
+        host = backend_cfg.get("host", "")
+        path = backend_cfg.get("remote_path", "")
+        return f"sftp://{host}{path}"
+    return storage
 
 
 def _load_cfg() -> dict:

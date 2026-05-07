@@ -120,6 +120,50 @@ def test_pull_empty_backend_raises(cfg):
         core.pull(None, cfg, provider)
 
 
+def test_expand_referenced_files_picks_up_script(tmp_path):
+    (tmp_path / "settings.json").write_text(
+        '{"statusLine": {"command": "python ~/.claude/statusline-command.py"}}'
+    )
+    (tmp_path / "statusline-command.py").write_text("# script")
+
+    tracked = ["settings.json"]
+    result = core._expand_referenced_files(tracked, tmp_path)
+    assert "statusline-command.py" in result
+
+
+def test_expand_referenced_files_skips_missing(tmp_path):
+    (tmp_path / "settings.json").write_text(
+        '{"cmd": "~/.claude/ghost.py"}'
+    )
+    tracked = ["settings.json"]
+    result = core._expand_referenced_files(tracked, tmp_path)
+    assert "ghost.py" not in result
+
+
+def test_expand_referenced_files_no_duplicates(tmp_path):
+    (tmp_path / "settings.json").write_text(
+        '{"cmd": "~/.claude/statusline-command.py"}'
+    )
+    (tmp_path / "statusline-command.py").write_text("# script")
+
+    tracked = ["settings.json", "statusline-command.py"]
+    result = core._expand_referenced_files(tracked, tmp_path)
+    assert result.count("statusline-command.py") == 1
+
+
+def test_push_includes_referenced_file(fake_claude, cfg):
+    (fake_claude / "settings.json").write_text(
+        '{"statusLine": {"command": "python ~/.claude/statusline-command.py"}}'
+    )
+    (fake_claude / "statusline-command.py").write_text("# script")
+
+    provider = MemoryProvider()
+    with patch("claude_cfg.core.claude_dir", return_value=fake_claude):
+        result = core.push("with script", cfg, provider)
+
+    assert result["file_count"] == 3  # settings.json + CLAUDE.md + statusline-command.py
+
+
 def test_list_snapshots_order(cfg, fake_claude):
     provider = MemoryProvider()
     with patch("claude_cfg.core.claude_dir", return_value=fake_claude):

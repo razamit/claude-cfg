@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -6,6 +7,9 @@ from pathlib import Path
 from claude_cfg import snapshot as snap
 from claude_cfg.paths import backups_dir, claude_dir
 from claude_cfg.providers.base import StorageProvider
+
+# Matches ~/.claude/<rel-path> in any string value — catches both / and \ separators
+_CLAUDE_REF_RE = re.compile(r"~/\.claude[/\\]([\w./\\-]+)")
 
 _INDEX_KEY = "index.json"
 
@@ -23,12 +27,13 @@ def _save_index(provider: StorageProvider, index: dict) -> None:
 def push(message: str, cfg: dict, provider: StorageProvider) -> dict:
     tracked: list[str] = cfg.get("tracked", [])
     source_dir = claude_dir()
+    all_tracked = _expand_referenced_files(tracked, source_dir)
 
     index = _load_index(provider)
     snapshots = index["snapshots"]
     next_id = (snapshots[-1]["id"] + 1) if snapshots else 1
 
-    zip_data = snap.create_zip(tracked, source_dir, next_id, message)
+    zip_data = snap.create_zip(all_tracked, source_dir, next_id, message)
     manifest = snap.read_manifest(zip_data)
     key = snap.snapshot_key(next_id, manifest["timestamp"], message)
 
@@ -92,8 +97,8 @@ def list_snapshots(provider: StorageProvider) -> list[dict]:
 
 
 def _backup_current(cfg: dict) -> Path:
-    tracked: list[str] = cfg.get("tracked", [])
     source_dir = claude_dir()
+    tracked = _expand_referenced_files(cfg.get("tracked", []), source_dir)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_dest = backups_dir() / ts
     backup_dest.mkdir(parents=True, exist_ok=True)
@@ -110,6 +115,27 @@ def _backup_current(cfg: dict) -> Path:
             shutil.copy2(src, dst)
 
     return backup_dest
+
+
+def _expand_referenced_files(tracked: list[str], source_dir: Path) -> list[str]:
+    """Scan tracked files for ~/.claude/<path> references and add them."""
+    extra: set[str] = set()
+    for entry in tracked:
+        path = source_dir / entry.rstrip("/")
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for match in _CLAUDE_REF_RE.finditer(text):
+            rel = match.group(1).replace("\\", "/")
+            ref_path = source_dir / rel
+            if ref_path.exists() and ref_path.is_file():
+                extra.add(rel)
+
+    seen = set(tracked)
+    return tracked + [r for r in sorted(extra) if r not in seen]
 
 
 def _find_key_by_id(provider: StorageProvider, snapshot_id: int) -> str:
