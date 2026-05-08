@@ -151,6 +151,19 @@ def test_expand_referenced_files_no_duplicates(tmp_path):
     assert result.count("statusline-command.py") == 1
 
 
+def test_expand_referenced_files_rejects_traversal(tmp_path):
+    claude = tmp_path / ".claude"
+    claude.mkdir()
+    (tmp_path / "outside-secret.txt").write_text("secret")
+    (claude / "settings.json").write_text(
+        '{"cmd": "~/.claude/../outside-secret.txt"}'
+    )
+
+    result = core._expand_referenced_files(["settings.json"], claude)
+    assert all("outside-secret" not in r for r in result)
+    assert all(".." not in r for r in result)
+
+
 def test_push_includes_referenced_file(fake_claude, cfg):
     (fake_claude / "settings.json").write_text(
         '{"statusLine": {"command": "python ~/.claude/statusline-command.py"}}'

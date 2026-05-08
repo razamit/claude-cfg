@@ -1,12 +1,11 @@
 import json
-import sys
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich import print as rprint
 
+from claude_cfg import __version__
 from claude_cfg import config as cfg_mod
 from claude_cfg import core
 from claude_cfg.config import DEFAULT_TRACKED
@@ -22,6 +21,26 @@ config_app = typer.Typer(help="Manage configuration.")
 app.add_typer(config_app, name="config")
 
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"claude-cfg {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the version and exit.",
+    ),
+) -> None:
+    """Versioned snapshot sync for Claude Code config files."""
 
 
 @app.command()
@@ -204,7 +223,9 @@ def config_set(
 ) -> None:
     """Set a config value."""
     cfg_mod.set_value(key, value)
-    console.print(f"[green]Set {key} = {value}[/green]")
+    leaf = key.rsplit(".", 1)[-1]
+    shown = "***" if leaf in cfg_mod._MASKED_KEYS else value
+    console.print(f"[green]Set {key} = {shown}[/green]")
 
 
 def _describe_snapshot_dest(storage: str, backend_cfg: dict) -> str:

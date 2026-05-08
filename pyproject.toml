@@ -21,6 +21,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Archiving :: Backup",
     "Topic :: Utilities",
 ]
 dependencies = [
@@ -48,6 +50,7 @@ claude-cfg = "claude_cfg.cli:app"
 Homepage = "https://github.com/razamit/claude-cfg"
 Repository = "https://github.com/razamit/claude-cfg"
 Issues = "https://github.com/razamit/claude-cfg/issues"
+Changelog = "https://github.com/razamit/claude-cfg/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

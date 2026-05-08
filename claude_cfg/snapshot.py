@@ -65,11 +65,18 @@ def create_zip(
 def extract_zip(data: bytes, claude_dir: Path) -> list[str]:
     buf = io.BytesIO(data)
     extracted: list[str] = []
+    base = claude_dir.resolve()
     with zipfile.ZipFile(buf, mode="r") as zf:
         for name in zf.namelist():
             if name == "manifest.json":
                 continue
-            dest = claude_dir / name
+            if name.startswith(("/", "\\")) or ".." in Path(name).parts:
+                raise ValueError(f"Refusing unsafe zip entry: {name!r}")
+            dest = (claude_dir / name).resolve()
+            try:
+                dest.relative_to(base)
+            except ValueError:
+                raise ValueError(f"Refusing unsafe zip entry: {name!r}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(name))
             extracted.append(name)

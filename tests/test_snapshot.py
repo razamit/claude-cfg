@@ -67,3 +67,25 @@ def test_slug_truncation():
     key = snap.snapshot_key(1, "2026-01-01T00:00:00Z", msg)
     slug_part = key.split("_", 2)[2].replace(".zip", "")
     assert slug_part.count("-") <= 5
+
+
+def test_extract_zip_rejects_path_traversal(tmp_path):
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("../evil.txt", b"pwned")
+    dest = tmp_path / "claude"
+    dest.mkdir()
+    with pytest.raises(ValueError, match="unsafe zip entry"):
+        snap.extract_zip(buf.getvalue(), dest)
+
+
+def test_extract_zip_rejects_absolute_path(tmp_path):
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("/etc/passwd", b"pwned")
+    dest = tmp_path / "claude"
+    dest.mkdir()
+    with pytest.raises(ValueError, match="unsafe zip entry"):
+        snap.extract_zip(buf.getvalue(), dest)

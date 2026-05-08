@@ -1,4 +1,6 @@
 import json
+import os
+import platform
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,12 @@ def save(cfg: dict) -> None:
     config_dir().mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+    # Restrict to owner-only on POSIX; Windows ACLs already default to per-user.
+    if platform.system() != "Windows":
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
 
 
 def masked(cfg: dict) -> dict:

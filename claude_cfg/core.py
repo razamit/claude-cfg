@@ -120,6 +120,7 @@ def _backup_current(cfg: dict) -> Path:
 def _expand_referenced_files(tracked: list[str], source_dir: Path) -> list[str]:
     """Scan tracked files for ~/.claude/<path> references and add them."""
     extra: set[str] = set()
+    base = source_dir.resolve()
     for entry in tracked:
         path = source_dir / entry.rstrip("/")
         if not path.is_file():
@@ -130,9 +131,13 @@ def _expand_referenced_files(tracked: list[str], source_dir: Path) -> list[str]:
             continue
         for match in _CLAUDE_REF_RE.finditer(text):
             rel = match.group(1).replace("\\", "/")
-            ref_path = source_dir / rel
-            if ref_path.exists() and ref_path.is_file():
-                extra.add(rel)
+            ref_path = (source_dir / rel).resolve()
+            try:
+                safe_rel = ref_path.relative_to(base)
+            except ValueError:
+                continue
+            if ref_path.is_file():
+                extra.add(safe_rel.as_posix())
 
     seen = set(tracked)
     return tracked + [r for r in sorted(extra) if r not in seen]
