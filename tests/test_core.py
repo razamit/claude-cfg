@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from claude_cfg import core
+from claude_cfg import snapshot as snap
 from claude_cfg.providers.base import StorageProvider
 
 
@@ -118,6 +119,32 @@ def test_pull_empty_backend_raises(cfg):
     provider = MemoryProvider()
     with pytest.raises(RuntimeError, match="No snapshots"):
         core.pull(None, cfg, provider)
+
+
+def test_pull_refuses_newer_schema(cfg, fake_claude, monkeypatch):
+    provider = MemoryProvider()
+    with patch("claude_cfg.core.claude_dir", return_value=fake_claude):
+        core.push("snap", cfg, provider)
+
+    monkeypatch.setattr(snap, "SCHEMA_VERSION", 1)  # pretend the tool is older
+    with patch("claude_cfg.core._backup_current"):
+        with pytest.raises(RuntimeError, match="schema"):
+            core.pull(None, cfg, provider)
+
+
+def test_pull_reports_platforms(cfg, fake_claude, tmp_path):
+    provider = MemoryProvider()
+    restore_dir = tmp_path / "restore"
+    restore_dir.mkdir()
+    with patch("claude_cfg.core.claude_dir", return_value=fake_claude):
+        core.push("snap", cfg, provider)
+    with (
+        patch("claude_cfg.core.claude_dir", return_value=restore_dir),
+        patch("claude_cfg.core._backup_current"),
+    ):
+        result = core.pull(None, cfg, provider)
+    assert "source_platform" in result
+    assert "target_platform" in result
 
 
 def test_expand_referenced_files_picks_up_script(tmp_path):

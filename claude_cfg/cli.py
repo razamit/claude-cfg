@@ -179,6 +179,19 @@ def pull(
     if result["message"]:
         console.print(f"  Message: {result['message']}")
 
+    src, tgt = result.get("source_platform"), result.get("target_platform")
+    if src and tgt and src != tgt:
+        console.print(f"  [dim]Adapted {src} → {tgt} (paths re-tokenized).[/dim]")
+    if result.get("is_wsl"):
+        console.print(
+            "  [yellow]WSL detected: this is the Linux home, distinct from any "
+            "Windows-native ~/.claude.[/yellow]"
+        )
+    console.print(
+        "  [yellow]Credentials are never synced — run [bold]claude[/bold] "
+        "to re-authenticate.[/yellow]"
+    )
+
 
 @app.command("list")
 def list_cmd() -> None:

@@ -5,13 +5,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from claude_cfg import snapshot as snap
-from claude_cfg.paths import backups_dir, claude_dir
+from claude_cfg.paths import CLAUDE_TOKEN, backups_dir, claude_dir, detect_target
 from claude_cfg.providers.base import StorageProvider
 
-# Matches ~/.claude/<rel-path> in any string value — catches both / and \ separators
-_CLAUDE_REF_RE = re.compile(r"~/\.claude[/\\]([\w./\\-]+)")
-
 _INDEX_KEY = "index.json"
+
+
+def _reference_re(source_dir: Path) -> re.Pattern:
+    """Match references to files under .claude by any spelling a config may use:
+    the ~/.claude shortcut, the ${CLAUDE_HOME} token, or an absolute path."""
+    bases = [
+        re.escape(str(source_dir)),
+        re.escape(source_dir.as_posix()),
+        re.escape("~/.claude"),
+        re.escape(CLAUDE_TOKEN),
+    ]
+    return re.compile(r"(?:" + "|".join(bases) + r")[/\\]([\w./\\-]+)", re.IGNORECASE)
 
 
 def _load_index(provider: StorageProvider) -> dict:
@@ -78,16 +87,27 @@ def pull(snapshot_id: int | None, cfg: dict, provider: StorageProvider) -> dict:
     key = entry.get("key") or _find_key_by_id(provider, entry["id"])
     zip_data = provider.download(key)
 
+    manifest = snap.read_manifest(zip_data)
+    schema = manifest.get("schema_version", 1)
+    if schema > snap.SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Snapshot #{entry['id']} uses schema v{schema}, but this "
+            f"claude-cfg only supports up to v{snap.SCHEMA_VERSION}. Upgrade first."
+        )
+
     _backup_current(cfg)
 
-    dest = claude_dir()
-    extracted = snap.extract_zip(zip_data, dest)
+    target = detect_target()
+    extracted = snap.extract_zip(zip_data, claude_dir())
 
     return {
         "id": entry["id"],
         "timestamp": entry["timestamp"],
         "message": entry.get("message", ""),
         "files_restored": len(extracted),
+        "source_platform": manifest.get("source_platform", "unknown"),
+        "target_platform": target.platform,
+        "is_wsl": target.is_wsl,
     }
 
 
@@ -118,9 +138,15 @@ def _backup_current(cfg: dict) -> Path:
 
 
 def _expand_referenced_files(tracked: list[str], source_dir: Path) -> list[str]:
-    """Scan tracked files for ~/.claude/<path> references and add them."""
+    """Scan tracked files for references to other .claude files and add them.
+
+    Covers ~/.claude, ${CLAUDE_HOME}, and absolute paths so externalized hook
+    or status-line scripts travel with the snapshot regardless of how they are
+    spelled in the config.
+    """
     extra: set[str] = set()
     base = source_dir.resolve()
+    ref_re = _reference_re(source_dir)
     for entry in tracked:
         path = source_dir / entry.rstrip("/")
         if not path.is_file():
@@ -129,7 +155,7 @@ def _expand_referenced_files(tracked: list[str], source_dir: Path) -> list[str]:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        for match in _CLAUDE_REF_RE.finditer(text):
+        for match in ref_re.finditer(text):
             rel = match.group(1).replace("\\", "/")
             ref_path = (source_dir / rel).resolve()
             try:
