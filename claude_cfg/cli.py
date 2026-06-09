@@ -129,18 +129,85 @@ def init() -> None:
     console.print(f"\n[green]Config saved to {config_file()}[/green]")
     console.print(f"[green]Snapshots will be stored in: {snapshot_dest}[/green]")
 
+    # Decide what to do with this machine now that the backend is configured:
+    # seed it from here (push) or pull an existing snapshot down (restore).
+    # On a fresh backend there is nothing to restore, so we just push.
+    try:
+        existing = core.list_snapshots(provider)
+    except Exception:
+        existing = []
+
+    if existing:
+        console.print(
+            f"\n[bold]This backend already has {len(existing)} snapshot(s):[/bold]"
+        )
+        for s in existing[:5]:
+            ts = s["timestamp"].replace("T", " ").replace("Z", "")
+            console.print(
+                f"  [cyan]#{s['id']}[/cyan]  {ts}  {s.get('message', '')}"
+                f"  [dim]{s.get('machine', '')}[/dim]"
+            )
+        if len(existing) > 5:
+            console.print(f"  [dim]…and {len(existing) - 5} more[/dim]")
+        console.print(
+            "\n[bold]push[/bold]    save THIS machine's ~/.claude as a new snapshot\n"
+            "[bold]restore[/bold] download an existing snapshot onto THIS machine"
+        )
+        action = typer.prompt("Choose action (push/restore)", default="restore")
+        action = action.lower().strip()
+    else:
+        action = "push"
+
+    if action.startswith("r"):
+        _init_restore(existing, new_cfg, provider)
+    else:
+        _init_push(new_cfg, provider)
+
+
+def _init_push(cfg: dict, provider) -> None:
     console.print("\nCreating initial snapshot...")
     try:
-        result = core.push("initial", new_cfg, provider)
+        result = core.push("initial", cfg, provider)
         ts = result["timestamp"].replace("T", " ").replace("Z", "")
         size_kb = result["size_bytes"] / 1024
         console.print(
-            f"[green]Snapshot #1 pushed ({ts}) — "
+            f"[green]Snapshot #{result['id']} pushed ({ts}) — "
             f"{result['file_count']} files, {size_kb:.1f} KB[/green]"
         )
     except Exception as e:
         console.print(f"[yellow]Warning: initial snapshot failed: {e}[/yellow]")
         console.print("Run [bold]claude-cfg push[/bold] manually when ready.")
+
+
+def _init_restore(existing: list, cfg: dict, provider) -> None:
+    raw = typer.prompt(
+        "Snapshot ID to restore (blank = latest)", default=""
+    ).strip()
+    point = int(raw) if raw else None
+
+    console.print("\nRestoring snapshot...")
+    try:
+        result = core.pull(point, cfg, provider)
+    except Exception as e:
+        console.print(f"[yellow]Warning: restore failed: {e}[/yellow]")
+        console.print("Run [bold]claude-cfg pull[/bold] manually when ready.")
+        return
+
+    ts = result["timestamp"].replace("T", " ").replace("Z", "")
+    console.print(
+        f"[green]Snapshot #{result['id']} restored "
+        f"({ts}) — {result['files_restored']} files[/green]"
+    )
+    if result.get("message"):
+        console.print(f"  Message: {result['message']}")
+    if result.get("backup_dir"):
+        console.print(
+            f"  [dim]Previous ~/.claude backed up to {result['backup_dir']}[/dim]"
+        )
+    console.print(
+        "  [yellow]Credentials are never synced — run [bold]claude[/bold] "
+        "to re-authenticate.[/yellow]"
+    )
 
 
 @app.command()
@@ -178,10 +245,18 @@ def pull(
     )
     if result["message"]:
         console.print(f"  Message: {result['message']}")
+    if result.get("backup_dir"):
+        console.print(
+            f"  [dim]Previous ~/.claude backed up to {result['backup_dir']}[/dim]"
+        )
 
     src, tgt = result.get("source_platform"), result.get("target_platform")
+    launcher = result.get("python_launcher")
     if src and tgt and src != tgt:
-        console.print(f"  [dim]Adapted {src} → {tgt} (paths re-tokenized).[/dim]")
+        detail = "paths re-tokenized"
+        if launcher:
+            detail += f", python commands → {launcher}"
+        console.print(f"  [dim]Adapted {src} → {tgt} ({detail}).[/dim]")
     if result.get("is_wsl"):
         console.print(
             "  [yellow]WSL detected: this is the Linux home, distinct from any "

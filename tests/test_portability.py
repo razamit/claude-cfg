@@ -6,7 +6,13 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 import pytest
 
 from claude_cfg import snapshot as snap
-from claude_cfg.paths import collapse_paths, expand_paths
+from claude_cfg.paths import (
+    collapse_interpreter,
+    collapse_paths,
+    expand_interpreter,
+    expand_paths,
+    resolve_python,
+)
 
 
 # --- pure tokenization (cross-platform, separator-agnostic) -----------------
@@ -45,6 +51,60 @@ def test_roundtrip_linux_to_windows():
 def test_no_paths_unchanged():
     home = PurePosixPath("/home/bob")
     assert collapse_paths("just some prose", home) == "just some prose"
+
+
+# --- interpreter normalization ----------------------------------------------
+
+def test_collapse_interpreter_bare_python():
+    assert (
+        collapse_interpreter("python ${CLAUDE_HOME}/statusline-command.py")
+        == "${PYTHON} ${CLAUDE_HOME}/statusline-command.py"
+    )
+
+
+def test_collapse_interpreter_variants():
+    assert collapse_interpreter("python3 ${CLAUDE_HOME}/x.py") == "${PYTHON} ${CLAUDE_HOME}/x.py"
+    assert collapse_interpreter("python3.11 ./x.py") == "${PYTHON} ./x.py"
+    assert collapse_interpreter("python.exe ${HOME}/x.py") == "${PYTHON} ${HOME}/x.py"
+    # Flags between launcher and script still collapse.
+    assert collapse_interpreter("python -u ${CLAUDE_HOME}/x.py") == "${PYTHON} -u ${CLAUDE_HOME}/x.py"
+
+
+def test_collapse_interpreter_leaves_prose_and_other_tools():
+    # No script hint -> untouched, even if it starts with "python".
+    assert collapse_interpreter("python") == "python"
+    assert collapse_interpreter("pythonic style guide") == "pythonic style guide"
+    # Other interpreters are out of scope.
+    assert collapse_interpreter("node ${CLAUDE_HOME}/x.js") == "node ${CLAUDE_HOME}/x.js"
+    # Path-qualified interpreters are an explicit choice we leave alone.
+    assert (
+        collapse_interpreter("/usr/bin/python3 ${CLAUDE_HOME}/x.py")
+        == "/usr/bin/python3 ${CLAUDE_HOME}/x.py"
+    )
+
+
+def test_expand_interpreter_uses_target_launcher():
+    assert expand_interpreter("${PYTHON} x.py", "python3") == "python3 x.py"
+    assert expand_interpreter("${PYTHON} x.py", "python") == "python x.py"
+    assert expand_interpreter("no token here", "python3") == "no token here"
+
+
+def test_interpreter_roundtrip_python_to_python3():
+    # A snapshot taken where the launcher is "python" restores to "python3".
+    stored = collapse_interpreter(collapse_paths("python ~/.claude/sl.py", PurePosixPath("/home/bob")))
+    assert stored == "${PYTHON} ${CLAUDE_HOME}/sl.py"
+    restored = expand_interpreter(expand_paths(stored, PurePosixPath("/home/al"), "/"), "python3")
+    assert restored == "python3 /home/al/.claude/sl.py"
+
+
+def test_resolve_python_prefers_python3(monkeypatch):
+    import claude_cfg.paths as paths_mod
+    monkeypatch.setattr(paths_mod.shutil, "which", lambda c: f"/usr/bin/{c}")
+    assert resolve_python() == "python3"
+    monkeypatch.setattr(paths_mod.shutil, "which", lambda c: f"/usr/bin/{c}" if c == "python" else None)
+    assert resolve_python() == "python"
+    monkeypatch.setattr(paths_mod.shutil, "which", lambda c: None)
+    assert resolve_python() == "python3"
 
 
 # --- snapshot integration ---------------------------------------------------
@@ -147,14 +207,41 @@ def test_nested_git_and_node_modules_excluded(tmp_path):
     assert all("/.git/" not in n and "/node_modules/" not in n for n in names)
 
 
-def test_manifest_schema_v2(tmp_path):
+def test_manifest_schema_v3(tmp_path):
     claude = tmp_path / ".claude"
     claude.mkdir(parents=True)
     (claude / "CLAUDE.md").write_text("# hi")
     manifest = snap.read_manifest(snap.create_zip(["CLAUDE.md"], claude, 1, "t"))
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == 3
     assert "source_platform" in manifest
     assert manifest["source_home"] == "${HOME}"
+
+
+def test_statusline_interpreter_roundtrip(tmp_path, monkeypatch):
+    # Reproduce the original bug: a snapshot whose statusLine command is spelled
+    # "python" must restore to whatever launcher the target machine actually has.
+    src = tmp_path / "home1" / ".claude"
+    src.mkdir(parents=True)
+    (src / "statusline-command.py").write_text("print('hi')")
+    settings = {
+        "statusLine": {
+            "type": "command",
+            "command": f"python {src / 'statusline-command.py'}",
+        }
+    }
+    (src / "settings.json").write_text(json.dumps(settings))
+
+    data = snap.create_zip(["settings.json"], src, 1, "t")
+    stored = json.loads(_zip_text(data, "settings.json"))
+    assert stored["statusLine"]["command"] == "${PYTHON} ${CLAUDE_HOME}/statusline-command.py"
+
+    monkeypatch.setattr(snap, "resolve_python", lambda: "python3")
+    dst = tmp_path / "home2" / ".claude"
+    dst.mkdir(parents=True)
+    snap.extract_zip(data, dst)
+    restored = json.loads((dst / "settings.json").read_text())
+    cmd = restored["statusLine"]["command"]
+    assert cmd == f"python3 {dst / 'statusline-command.py'}"
 
 
 def test_binary_asset_untouched(tmp_path):

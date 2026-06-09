@@ -95,7 +95,7 @@ def pull(snapshot_id: int | None, cfg: dict, provider: StorageProvider) -> dict:
             f"claude-cfg only supports up to v{snap.SCHEMA_VERSION}. Upgrade first."
         )
 
-    _backup_current(cfg)
+    backup_dir = _backup_current(cfg)
 
     target = detect_target()
     extracted = snap.extract_zip(zip_data, claude_dir())
@@ -105,8 +105,10 @@ def pull(snapshot_id: int | None, cfg: dict, provider: StorageProvider) -> dict:
         "timestamp": entry["timestamp"],
         "message": entry.get("message", ""),
         "files_restored": len(extracted),
+        "backup_dir": str(backup_dir),
         "source_platform": manifest.get("source_platform", "unknown"),
         "target_platform": target.platform,
+        "python_launcher": target.python,
         "is_wsl": target.is_wsl,
     }
 

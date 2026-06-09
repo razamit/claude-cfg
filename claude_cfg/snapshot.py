@@ -10,11 +10,15 @@ from claude_cfg import __version__
 from claude_cfg.paths import (
     CLAUDE_TOKEN,
     HOME_TOKEN,
+    PYTHON_TOKEN,
+    collapse_interpreter,
     collapse_paths,
+    expand_interpreter,
     expand_paths,
+    resolve_python,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Secrets and machine-bound state are never captured, even if a tracked folder
 # happens to contain them. Keeps snapshots light and safe for public backends.
@@ -95,27 +99,36 @@ def _walk(obj, fn):
 
 
 def _tokenize(rel: str, data: bytes, home: Path) -> bytes:
-    """Capture-side transform: machine paths -> portable tokens."""
+    """Capture-side transform: machine paths -> portable tokens.
+
+    Interpreter normalization rides on JSON values only, where command fields
+    (hooks, statusLine) live; collapse paths first so script paths are already
+    tokenized when :func:`collapse_interpreter` looks for a command hint.
+    """
     if not _is_text(data):
         return data
     text = data.decode("utf-8")
     if rel.endswith(".json"):
-        new, changed = _transform_json(text, lambda s: collapse_paths(s, home))
+        new, changed = _transform_json(
+            text, lambda s: collapse_interpreter(collapse_paths(s, home))
+        )
     else:
         new = collapse_paths(text, home)
         changed = new != text
     return new.encode("utf-8") if changed else data
 
 
-def _detokenize(rel: str, data: bytes, home: Path, sep: str) -> bytes:
-    """Restore-side transform: portable tokens -> native paths for this OS."""
+def _detokenize(rel: str, data: bytes, home: Path, sep: str, python: str) -> bytes:
+    """Restore-side transform: portable tokens -> native values for this OS."""
     if not _is_text(data):
         return data
     text = data.decode("utf-8")
-    if HOME_TOKEN not in text and CLAUDE_TOKEN not in text:
+    if not any(t in text for t in (HOME_TOKEN, CLAUDE_TOKEN, PYTHON_TOKEN)):
         return data
     if rel.endswith(".json"):
-        new, changed = _transform_json(text, lambda s: expand_paths(s, home, sep))
+        new, changed = _transform_json(
+            text, lambda s: expand_interpreter(expand_paths(s, home, sep), python)
+        )
     else:
         new = expand_paths(text, home, sep)
         changed = new != text
@@ -172,6 +185,7 @@ def create_zip(
 def extract_zip(data: bytes, claude_dir: Path) -> list[str]:
     home = claude_dir.parent
     sep = "\\" if platform.system() == "Windows" else "/"
+    python = resolve_python()
     buf = io.BytesIO(data)
     extracted: list[str] = []
     base = claude_dir.resolve()
@@ -187,7 +201,7 @@ def extract_zip(data: bytes, claude_dir: Path) -> list[str]:
             except ValueError:
                 raise ValueError(f"Refusing unsafe zip entry: {name!r}")
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(_detokenize(name, zf.read(name), home, sep))
+            dest.write_bytes(_detokenize(name, zf.read(name), home, sep, python))
             extracted.append(name)
     return extracted
 

@@ -63,18 +63,19 @@ Include/exclude are overridable in the config file (`include` / `exclude` glob a
 
 ## 3. Path tokenization
 
-Two tokens, expanded at restore time against the target machine.
+Three tokens, expanded at restore time against the target machine.
 
 | Token | Meaning |
 |---|---|
 | `${HOME}` | User home directory |
 | `${CLAUDE_HOME}` | The `.claude` directory root |
+| `${PYTHON}` | The python launcher available on the target (`python3` preferred, then `python`) |
 
-**Capture:** normalize the source home prefix (handle both `\` and `/`), replace any literal occurrence with the token, and store all stored-form paths with `/` separators. A Windows value `C:\\Users\\amit\\.claude\\hooks\\guard.py` becomes `${CLAUDE_HOME}/hooks/guard.py`.
+**Capture:** normalize the source home prefix (handle both `\` and `/`), replace any literal occurrence with the token, and store all stored-form paths with `/` separators. A Windows value `C:\\Users\\amit\\.claude\\hooks\\guard.py` becomes `${CLAUDE_HOME}/hooks/guard.py`. A leading bare `python`/`python3` launcher in a JSON command value becomes `${PYTHON}` (path-qualified interpreters are left alone).
 
-**Restore:** expand tokens to the target home. JSON config values can stay `/` on all three OSes. Fields that are handed to a shell (hook commands, MCP `command`/`args`) get separators converted to the native form for the target platform.
+**Restore:** expand tokens to the target home. JSON config values can stay `/` on all three OSes. Fields that are handed to a shell (hook commands, MCP `command`/`args`) get separators converted to the native form for the target platform. `${PYTHON}` resolves to whichever launcher exists on the target, fixing the common `python` (Windows) vs `python3` (macOS/Linux) mismatch.
 
-Implement `collapse_paths(text, home)` and `expand_paths(text, home)` in `paths.py`.
+Implement `collapse_paths(text, home)` / `expand_paths(text, home)` and `collapse_interpreter(text)` / `expand_interpreter(text, python_cmd)` in `paths.py`.
 
 ---
 
@@ -150,11 +151,11 @@ On restore, `${ENV:NAME}` placeholders resolve from the target environment. If a
 
 ## 8. Snapshot manifest (extends PLAN.md schema)
 
-Keep the existing zip + `index.json`. Add a per-snapshot `manifest.json` (schema v2):
+Keep the existing zip + `index.json`. Add a per-snapshot `manifest.json` (schema v3):
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "created_at": "2026-06-09T10:00:00Z",
   "claude_cfg_version": "x.y.z",
   "source_platform": "win32",

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Interpreter normalization: a leading `python`/`python3` launcher in a tracked
+  config command is stored as a neutral `${PYTHON}` token and resolved on restore
+  to whichever launcher (`python3` preferred, then `python`) exists on the target
+  machine. Fixes status-line / hook commands breaking when a snapshot spelled
+  `python` is restored on a host that only has `python3` (e.g. macOS).
+
+### Changed
+- Snapshot `schema_version` bumped to **3** (new snapshots embed the `${PYTHON}`
+  token, which older readers would not expand). Restoring a v3 snapshot with an
+  older `claude-cfg` is refused with a clear upgrade message.
+
 ## [0.1.0] - 2026-05-07
 
 ### Added

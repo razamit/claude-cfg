@@ -1,6 +1,7 @@
 import os
 import platform
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,6 +9,25 @@ from pathlib import Path
 # absolute paths so a snapshot taken on one OS restores cleanly on any other.
 HOME_TOKEN = "${HOME}"
 CLAUDE_TOKEN = "${CLAUDE_HOME}"
+# The python launcher a command spells differs by OS (``python`` on Windows,
+# ``python3`` on macOS/most Linux). Snapshots store this neutral token and the
+# restore resolves it to whatever actually exists on the target machine.
+PYTHON_TOKEN = "${PYTHON}"
+
+_PYTHON_CANDIDATES = ("python3", "python")
+
+
+def resolve_python() -> str:
+    """The python launcher to bake into restored commands on this machine.
+
+    Prefers ``python3`` (POSIX and modern installs) and falls back to ``python``
+    (typical on Windows). Defaults to ``python3`` if neither is on PATH, so a
+    restored command is at least well-formed and fixable.
+    """
+    for candidate in _PYTHON_CANDIDATES:
+        if shutil.which(candidate):
+            return candidate
+    return "python3"
 
 
 def _home() -> Path:
@@ -41,6 +61,7 @@ class Target:
     claude_home: Path
     sep: str  # native path separator for shell-bound fields
     is_wsl: bool
+    python: str  # python launcher available on this machine
 
 
 def detect_target() -> Target:
@@ -59,6 +80,7 @@ def detect_target() -> Target:
         claude_home=home / ".claude",
         sep=sep,
         is_wsl=is_wsl,
+        python=resolve_python(),
     )
 
 
@@ -105,3 +127,34 @@ def expand_paths(value: str, home: Path, sep: str) -> str:
             out,
         )
     return out
+
+
+# A bare python launcher at the very start of a command: python, python3,
+# python2, python3.11, optionally with a Windows .exe suffix. It must be
+# followed by whitespace (i.e. it has arguments) so the lone word "python" in
+# prose is never touched. Path-qualified interpreters (``/usr/bin/python3``, a
+# venv path) are deliberately left alone — those are explicit, machine-specific
+# choices we must not second-guess.
+_PYTHON_LAUNCHER_RE = re.compile(
+    r'^(\s*)python(?:[23](?:\.\d{1,2})?)?(?:\.exe)?(?=\s)',
+    re.IGNORECASE,
+)
+# Only normalize when the command actually runs a script: a .py file, a path
+# separator, or one of our path tokens appears. Keeps us off plain prose.
+_SCRIPT_HINT_RE = re.compile(r'\.pyw?\b|[/\\]|\$\{(?:CLAUDE_HOME|HOME)\}')
+
+
+def collapse_interpreter(value: str) -> str:
+    """Capture-side: a leading bare ``python`` launcher -> ``${PYTHON}`` token.
+
+    Run after :func:`collapse_paths`, so script paths are already tokenized and
+    available as a hint that this string is a command rather than prose.
+    """
+    if not _SCRIPT_HINT_RE.search(value):
+        return value
+    return _PYTHON_LAUNCHER_RE.sub(lambda m: m.group(1) + PYTHON_TOKEN, value)
+
+
+def expand_interpreter(value: str, python_cmd: str) -> str:
+    """Restore-side: ``${PYTHON}`` token -> the launcher this machine has."""
+    return value.replace(PYTHON_TOKEN, python_cmd)
