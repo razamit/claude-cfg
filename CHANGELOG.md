@@ -7,12 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-09
+
 ### Added
 - Interpreter normalization: a leading `python`/`python3` launcher in a tracked
   config command is stored as a neutral `${PYTHON}` token and resolved on restore
   to whichever launcher (`python3` preferred, then `python`) exists on the target
   machine. Fixes status-line / hook commands breaking when a snapshot spelled
   `python` is restored on a host that only has `python3` (e.g. macOS).
+- `init` now detects existing snapshots on a configured backend and prompts to
+  either push this machine or restore an existing snapshot, instead of always
+  pushing.
+- `pull` reports the backup directory and, on a cross-platform restore, the
+  resolved python launcher.
 
 ### Changed
 - Snapshot `schema_version` bumped to **3** (new snapshots embed the `${PYTHON}`
@@ -38,5 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `extract_zip` rejects archive entries that escape the destination directory (zip slip).
 - `_expand_referenced_files` rejects `~/.claude/<path>` references that resolve outside `~/.claude/`.
 
-[Unreleased]: https://github.com/razamit/claude-cfg/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/razamit/claude-cfg/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/razamit/claude-cfg/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/razamit/claude-cfg/releases/tag/v0.1.0
